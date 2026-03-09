@@ -35,6 +35,7 @@ int   width;
 int   height;
 int   tapeSize;
 int   instructionLimit;
+int   displayMode;       // 0 = instruction categories  1 = species identity
 float mutationRate;
 float time;
 
@@ -189,11 +190,17 @@ float3 HSVtoRGB(float h, float s, float v)
 }
 
 // ── UpdateColourMap ───────────────────────────────────────────────────────────
-// HSV encoding:
-//   Hue        = dominant active-instruction category
-//   Saturation = fraction of tape bytes that ARE instructions (not null/data)
-//                → grey = no instructions yet, vivid = evolved program
-//   Value      = 1.0 (always bright; bloom handles glow)
+//
+// MODE 0 — Instruction category view:
+//   Hue = dominant instruction type, Saturation = instruction density
+//
+// MODE 1 — Species identity view (the scientific one):
+//   BFF replication copies bytes exactly. Same program = identical tape = same hash.
+//   Hue = hash of tape content → each species gets a unique, consistent colour.
+//   Saturation = instruction density (empty/random cells stay dark grey).
+//   As a replicator sweeps the grid its colour floods the screen.
+//   Parasites = different hash = different hue, appearing inside the host territory.
+//   Red Queen = two hues with an oscillating boundary.
 
 [numthreads(8, 8, 1)]
 void UpdateColourMap(uint3 id : SV_DispatchThreadID)
@@ -202,32 +209,45 @@ void UpdateColourMap(uint3 id : SV_DispatchThreadID)
 
     int base_idx = ((int)id.y * width + (int)id.x) * TAPE_SIZE;
 
+    // Count instruction categories for both modes
     uint counts[7] = { 0u, 0u, 0u, 0u, 0u, 0u, 0u };
     for (int i = 0; i < TAPE_SIZE; i++)
         counts[byteCategory(TapeData[base_idx + i])]++;
 
-    // Saturation = active instruction bytes / total (exclude null and data)
     uint activeInstr = counts[1] + counts[2] + counts[3] + counts[4] + counts[5];
-    float saturation = (float)activeInstr / (float)TAPE_SIZE;
-    // Boost saturation so even sparse programs show colour
-    saturation = saturate(saturation * 4.0);
+    float saturation = saturate((float)activeInstr / (float)TAPE_SIZE * 4.0);
 
-    // Find dominant ACTIVE category (ignore null=0 and data=6)
-    uint dom = 1u;
-    for (uint c = 2u; c <= 5u; c++)
-        if (counts[c] > counts[dom]) dom = c;
-
-    // Cells with zero active instructions: deep grey with slight blue hint
+    // Cells with no active instructions: deep dark background regardless of mode
     if (activeInstr == 0u)
     {
-        float nullFrac = (float)counts[0] / (float)TAPE_SIZE;
-        DisplayTexture[id.xy] = float4(0.04, 0.05, 0.08, 1.0) * (1.0 - nullFrac * 0.5);
+        DisplayTexture[id.xy] = float4(0.04, 0.05, 0.08, 1.0);
         return;
     }
 
-    float hue = categoryHue[dom];
-    float val = lerp(0.3, 1.0, saturation); // dim when sparse, bright when evolved
-    float3 rgb = HSVtoRGB(hue, saturation, val);
+    float hue;
 
+    if (displayMode == 1)
+    {
+        // Species identity — hash the full tape to a unique hue per program.
+        // Exact copies (spread by replication) share identical bytes → same hash → same colour.
+        // One-bit mutations shift the hue slightly, making mutation visible as colour drift.
+        uint fingerprint = 2166136261u;  // FNV-1a offset basis
+        for (int t = 0; t < TAPE_SIZE; t++)
+            fingerprint = (fingerprint ^ TapeData[base_idx + t]) * 16777619u;
+        // Mix once more for avalanche
+        fingerprint = hash(fingerprint);
+        hue = frac((float)fingerprint / 4294967295.0);
+    }
+    else
+    {
+        // Instruction category — hue from dominant active type
+        uint dom = 1u;
+        for (uint c = 2u; c <= 5u; c++)
+            if (counts[c] > counts[dom]) dom = c;
+        hue = categoryHue[dom];
+    }
+
+    float val = lerp(0.35, 1.0, saturation);
+    float3 rgb = HSVtoRGB(hue, saturation, val);
     DisplayTexture[id.xy] = float4(rgb, 1.0);
 }

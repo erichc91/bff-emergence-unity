@@ -25,4 +25,7 @@ public class BFFSettings : ScriptableObject
     [Header("Display")]
     [Tooltip("Show epoch count and entropy overlay")]
     public bool showHUD = true;
+
+    [Tooltip("0 = instruction categories (type view)  |  1 = species identity (territory view)")]
+    public int displayMode = 1;
 }

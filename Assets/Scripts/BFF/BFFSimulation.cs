@@ -36,6 +36,14 @@ public class BFFSimulation : MonoBehaviour
 
         if (epochCount % EntropyInterval == 0)
             SampleEntropy();
+
+        // S key: toggle species identity / instruction category view
+        if (Input.GetKeyDown(KeyCode.S))
+        {
+            settings.displayMode = settings.displayMode == 1 ? 0 : 1;
+            string modeName = settings.displayMode == 1 ? "SPECIES IDENTITY" : "INSTRUCTION CATEGORIES";
+            Debug.Log($"Display mode: {modeName}");
+        }
     }
 
     // ── Initialisation ────────────────────────────────────────────────────────
@@ -69,6 +77,7 @@ public class BFFSimulation : MonoBehaviour
         compute.SetInt("height",           settings.height);
         compute.SetInt("tapeSize",         settings.tapeSize);
         compute.SetInt("instructionLimit", settings.instructionLimit);
+        compute.SetInt("displayMode",      settings.displayMode);
         compute.SetFloat("mutationRate",   settings.mutationRate);
 
         compute.SetBuffer(stepKernel,    "TapeData", tapeBuffer);
@@ -89,6 +98,7 @@ public class BFFSimulation : MonoBehaviour
     void RunSimulation()
     {
         compute.SetFloat("time", Time.fixedTime + epochCount * 0.001f);
+        compute.SetInt("displayMode", settings.displayMode);
 
         int gx = Mathf.CeilToInt(settings.width  / 8f);
         int gy = Mathf.CeilToInt(settings.height / 8f);
@@ -122,8 +132,9 @@ public class BFFSimulation : MonoBehaviour
     void OnGUI()
     {
         if (!settings.showHUD) return;
-        GUI.Label(new Rect(12, 10, 300, 30),
-            $"epoch  {epochCount:N0}    entropy  {currentEntropy:F2} / 8.00",
+        string modeName = settings.displayMode == 1 ? "species" : "categories";
+        GUI.Label(new Rect(12, 10, 400, 30),
+            $"epoch  {epochCount:N0}    entropy  {currentEntropy:F2} / 8.00    [{modeName}]  S=toggle",
             hudStyle);
     }
 }
