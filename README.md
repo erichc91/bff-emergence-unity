@@ -72,9 +72,35 @@ Assets/
 ## Phase Roadmap
 
 - **Phase 1** ✅ — Baseline GPU BFF sim running in Unity
-- **Phase 2** — Visual polish: bloom, HDR, entropy HUD, species heat map
-- **Phase 3** — Parameter exploration UI, preset system (like Lague's A/B/C/D)
-- **Phase 4** — Connect to bff-emergence Python experiment pipeline
+- **Phase 2** ✅ — Visual polish: HSV colour model, bloom, entropy HUD, presets A/B/C/D
+- **Phase 3** ✅ — Species territory map (FNV-1a hash → hue), S-key toggle
+- **Phase 4** ✅ — Chemotaxis trail layer + information-density colour muting
+- **Phase 5** — Structure formation: mutation-as-temperature, CMB → galaxy-formation transition
+
+---
+
+## The CMB Observation (2026-03-09)
+
+At high mutation rate (0.00002), entropy stabilises at ~7.84/8.00 bits and the sim
+produces a near-uniform blue-indigo noise field with scattered vivid specks.
+This is the **CMB epoch of the BFF universe**.
+
+The parallel is structural, not just aesthetic:
+
+| Universe | BFF Sim |
+|----------|---------|
+| CMB at 2.73 K — near-uniform thermal noise | Entropy 7.84/8.00 — near-maximum Shannon noise |
+| Temperature anisotropies 1 part in 100,000 | Vivid specks in the noise field |
+| Mutation rate = temperature of the BFF universe | High mutation → hot → no structure |
+| Cooling → galaxy formation | Lower mutation → territory wars emerge |
+| Boltzmann fluctuation → galaxy seed | Yellow bubble → Boltzmann fluctuation that dissolved |
+| MEPP: life accelerates entropy production | Replicators maximise local entropy output |
+
+**To advance from CMB epoch to galaxy formation:**
+- Drop `mutationRate`: `0.00002` → `0.000002`
+- Shannon entropy will fall from 7.84 → 4-6 range
+- Red Queen territory wars (the "galaxies") crystallise
+- Press **S** for species-identity view to see the mosaic clearly
 
 ---
 
