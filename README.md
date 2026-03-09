@@ -2,13 +2,21 @@
 
 > **Making computational life visible in real time.**
 
+### Recording 1 — The CMB Arc (entropy 7.97 → 0.99)
 ![BFF Emergence — CMB to galaxy formation](preview.gif)
 
-*39 seconds. Left: CMB epoch (entropy 7.97/8.00, near-maximum noise). Right: galaxy formation
-(entropy 0.99/8.00, two-species Red Queen territory mosaic). Mutation rate reduced mid-recording.*
+*Blue-indigo noise field (entropy ~8.00, CMB epoch) → yellow/purple two-species territory mosaic
+after mutation rate reduction. The phase transition is sharp, not gradual.*
 
-**Full video (2548×1340, 39s):**
-https://drive.google.com/file/d/19xj6tYnocVRSzLsqj60Vhsxp20uHzluz/view?usp=drivesdk
+### Recording 2 — Colony Nucleation & Total Conversion
+![BFF Emergence — colony nucleation and expansion](emergence.gif)
+
+*Individual replicator colonies nucleate from noise, grow into amoeba-shaped blobs, merge,
+and eventually convert the entire grid — leaving only one dark fractal void before total coverage.*
+
+**Full videos on Google Drive:**
+- [bff_recording.mp4](https://drive.google.com/file/d/19xj6tYnocVRSzLsqj60Vhsxp20uHzluz/view?usp=drivesdk) — 2548×1340, 39s
+- bff_Recording_30_secs.mp4 — 1190×1246, 30s
 
 ---
 
