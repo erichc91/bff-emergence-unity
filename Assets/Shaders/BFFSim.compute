@@ -1,0 +1,202 @@
+// BFFSim.compute — GPU BFF virtual machine
+//
+// Instruction set (paper: Agüera y Arcas et al. arXiv:2406.19108)
+//   <  (60)  head0 left      >  (62)  head0 right
+//   {  (123) head1 left      }  (125) head1 right
+//   +  (43)  increment       -  (45)  decrement
+//   .  (46)  copy head0→head1   (REPLICATION when head1 ≥ tapeSize)
+//   ,  (44)  copy head1→head0
+//   [  (91)  jump forward if head0==0
+//   ]  (93)  jump back    if head0!=0
+//
+// Architecture mirrors Lague's slime sim:
+//   StepEpoch      — one BFF interaction per cell (spatial topology)
+//   UpdateColourMap — tape dominant-byte-category → pixel colour
+//
+// Race-condition-free: each thread writes ONLY to its own cell (id.xy).
+// Interaction: thread A picks neighbour B → runs BFF on [B_tape | A_tape]
+//              → A's tape gets overwritten by B's self-replicating program.
+
+#pragma kernel StepEpoch
+#pragma kernel UpdateColourMap
+
+// TAPE_SIZE must match BFFSettings.tapeSize — both default to 16.
+// Combined tape (template B + target A) = TAPE_SIZE * 2 = 32 bytes.
+#define TAPE_SIZE 16
+#define COMBINED  32
+#define MASK      (COMBINED - 1)
+
+// ── Shared buffers ────────────────────────────────────────────────────────────
+
+RWStructuredBuffer<uint> TapeData;
+RWTexture2D<float4>      DisplayTexture;
+
+int   width;
+int   height;
+int   tapeSize;          // passed from C# (mirrors TAPE_SIZE constant)
+int   instructionLimit;
+float mutationRate;
+float time;
+
+float4 categoryColours[7];
+
+// ── Hash RNG — identical to Lague's slime sim ─────────────────────────────────
+
+uint hash(uint state)
+{
+    state ^= 2747636419u;
+    state *= 2654435769u;
+    state ^= state >> 16;
+    state *= 2654435769u;
+    state ^= state >> 16;
+    state *= 2654435769u;
+    return state;
+}
+
+float randFloat(uint h) { return h / 4294967295.0; }
+
+// ── StepEpoch ─────────────────────────────────────────────────────────────────
+// One BFF epoch step per cell.  No race condition: each thread writes its own
+// cell only.  Neighbour B is read-only (from this thread's perspective).
+
+[numthreads(8, 8, 1)]
+void StepEpoch(uint3 id : SV_DispatchThreadID)
+{
+    if ((int)id.x >= width || (int)id.y >= height) return;
+
+    // Seed RNG from spatial position + time so every thread has unique stream
+    uint rng = hash((uint)(id.y * width + id.x) + (uint)(time * 7919.0));
+
+    // Pick a random cardinal neighbour (wrapping)
+    int dir = (int)(randFloat(hash(rng)) * 4.0);
+    int nx = (int)id.x, ny = (int)id.y;
+    if      (dir == 0) nx = (nx + 1) % width;
+    else if (dir == 1) nx = (nx - 1 + width) % width;
+    else if (dir == 2) ny = (ny + 1) % height;
+    else               ny = (ny - 1 + height) % height;
+
+    int a_base = ((int)id.y * width + (int)id.x) * TAPE_SIZE;  // self (target)
+    int b_base = (ny * width + nx)                * TAPE_SIZE;  // neighbour (template)
+
+    // ── Load combined tape: [B template | A target] ───────────────────────────
+    uint buf[COMBINED];
+    for (int i = 0; i < TAPE_SIZE; i++)
+    {
+        buf[i]            = TapeData[b_base + i];   // B first half — the program
+        buf[i + TAPE_SIZE] = TapeData[a_base + i];  // A second half — the target
+    }
+
+    // ── Pre-compute jump table (O(COMBINED)) ──────────────────────────────────
+    int jumps[COMBINED];
+    for (int j = 0; j < COMBINED; j++) jumps[j] = -1;
+
+    for (int pos = 0; pos < COMBINED; pos++)
+    {
+        if (buf[pos] == 91u)   // [
+        {
+            int depth = 1, scan = pos + 1, scanned = 0;
+            while (depth > 0 && scanned < COMBINED)
+            {
+                uint b2 = buf[scan & MASK];
+                if (b2 == 91u) depth++;
+                if (b2 == 93u) depth--;
+                scan++; scanned++;
+            }
+            if (depth == 0) jumps[pos] = (scan - 1) & MASK;
+        }
+        else if (buf[pos] == 93u)  // ]
+        {
+            int depth = 1, scan = pos - 1, scanned = 0;
+            while (depth > 0 && scanned < COMBINED)
+            {
+                // Backward scan wraps via modular arithmetic
+                uint b2 = buf[(scan % COMBINED + COMBINED) % COMBINED];
+                if (b2 == 93u) depth++;
+                if (b2 == 91u) depth--;
+                scan--; scanned++;
+            }
+            if (depth == 0) jumps[pos] = ((scan + 1) % COMBINED + COMBINED) % COMBINED;
+        }
+    }
+
+    // ── Execute BFF VM ────────────────────────────────────────────────────────
+    int head0 = 0, head1 = 0, ip = 0;
+
+    for (int cycle = 0; cycle < instructionLimit; cycle++)
+    {
+        int  cur   = ip & MASK;
+        uint instr = buf[cur];
+
+        if      (instr == 60u)  head0 = (head0 - 1 + COMBINED) & MASK;  // <
+        else if (instr == 62u)  head0 = (head0 + 1) & MASK;              // >
+        else if (instr == 123u) head1 = (head1 - 1 + COMBINED) & MASK;  // {
+        else if (instr == 125u) head1 = (head1 + 1) & MASK;              // }
+        else if (instr == 43u)  buf[head0 & MASK] = (buf[head0 & MASK] + 1u) & 255u;  // +
+        else if (instr == 45u)  buf[head0 & MASK] = (buf[head0 & MASK] - 1u) & 255u;  // -
+        else if (instr == 46u)  buf[head1 & MASK] = buf[head0 & MASK];   // .
+        else if (instr == 44u)  buf[head0 & MASK] = buf[head1 & MASK];   // ,
+        else if (instr == 91u)  // [
+        {
+            if (buf[head0 & MASK] == 0u)
+            {
+                if (jumps[cur] >= 0) ip = jumps[cur];
+                else break;
+            }
+        }
+        else if (instr == 93u)  // ]
+        {
+            if (buf[head0 & MASK] != 0u)
+            {
+                if (jumps[cur] >= 0) ip = jumps[cur];
+                else break;
+            }
+        }
+
+        ip++;
+    }
+
+    // ── Mutate and write back A's (target) portion only ───────────────────────
+    rng = hash(rng + 99991u);
+    for (int w = 0; w < TAPE_SIZE; w++)
+    {
+        uint val = buf[w + TAPE_SIZE];
+        if (randFloat(hash(rng + (uint)w)) < mutationRate)
+            val = hash(rng + (uint)w + 13u) & 255u;
+        TapeData[a_base + w] = val;
+    }
+}
+
+// ── UpdateColourMap ───────────────────────────────────────────────────────────
+// Maps each cell's dominant instruction category to a colour.
+//
+// Categories:  0=null  1=move(<>)  2=aux({})  3=math(+-)
+//              4=copy(.,)  5=loop([])  6=data
+
+int byteCategory(uint b)
+{
+    if (b == 0u)                   return 0;
+    if (b == 60u  || b == 62u)    return 1;  // < >
+    if (b == 123u || b == 125u)   return 2;  // { }
+    if (b == 43u  || b == 45u)    return 3;  // + -
+    if (b == 46u  || b == 44u)    return 4;  // . ,
+    if (b == 91u  || b == 93u)    return 5;  // [ ]
+    return 6;
+}
+
+[numthreads(8, 8, 1)]
+void UpdateColourMap(uint3 id : SV_DispatchThreadID)
+{
+    if ((int)id.x >= width || (int)id.y >= height) return;
+
+    int base_idx = ((int)id.y * width + (int)id.x) * TAPE_SIZE;
+
+    int counts[7] = { 0, 0, 0, 0, 0, 0, 0 };
+    for (int i = 0; i < TAPE_SIZE; i++)
+        counts[byteCategory(TapeData[base_idx + i])]++;
+
+    int dom = 0;
+    for (int c = 1; c < 7; c++)
+        if (counts[c] > counts[dom]) dom = c;
+
+    DisplayTexture[id.xy] = categoryColours[dom];
+}
