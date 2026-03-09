@@ -1,7 +1,8 @@
 using UnityEngine;
 
 // Orchestrates the BFF simulation — creates GPU buffers, dispatches kernels,
-// wires the output texture to the display Quad.  Mirrors Lague's Simulation.cs.
+// wires the output texture to the display Quad, and renders the entropy HUD.
+// Mirrors Lague's Simulation.cs conventions exactly.
 public class BFFSimulation : MonoBehaviour
 {
     public BFFSettings   settings;
@@ -11,25 +12,39 @@ public class BFFSimulation : MonoBehaviour
     RenderTexture  displayTexture;
 
     int stepKernel, colourKernel;
+    int epochCount;
+
+    // Entropy sampling — read back a small slice of tape each N frames
+    ComputeBuffer entropyReadback;
+    const int     EntropySampleCount = 512;
+    const int     EntropyInterval    = 30;   // frames between readbacks
+    float         currentEntropy     = 8f;
+    GUIStyle      hudStyle;
 
     // ── Lifecycle ─────────────────────────────────────────────────────────────
 
-    void Start()  => Init();
-    void OnDestroy() { tapeBuffer?.Release(); displayTexture?.Release(); }
+    void Start()     => Init();
+    void OnDestroy() { tapeBuffer?.Release(); displayTexture?.Release(); entropyReadback?.Release(); }
 
     void FixedUpdate()
     {
         for (int i = 0; i < settings.stepsPerFrame; i++)
+        {
             RunSimulation();
+            epochCount++;
+        }
+
+        if (epochCount % EntropyInterval == 0)
+            SampleEntropy();
     }
 
     // ── Initialisation ────────────────────────────────────────────────────────
 
     void Init()
     {
-        int cellCount = settings.width * settings.height;
+        epochCount = 0;
 
-        // One uint per byte — simpler indexing in HLSL than a packed format
+        int cellCount = settings.width * settings.height;
         tapeBuffer = new ComputeBuffer(cellCount * settings.tapeSize, sizeof(uint));
 
         uint[] init = new uint[cellCount * settings.tapeSize];
@@ -50,28 +65,30 @@ public class BFFSimulation : MonoBehaviour
         stepKernel   = compute.FindKernel("StepEpoch");
         colourKernel = compute.FindKernel("UpdateColourMap");
 
-        // Static uniforms (set once; only time changes per-frame)
         compute.SetInt("width",            settings.width);
         compute.SetInt("height",           settings.height);
         compute.SetInt("tapeSize",         settings.tapeSize);
         compute.SetInt("instructionLimit", settings.instructionLimit);
         compute.SetFloat("mutationRate",   settings.mutationRate);
 
-        compute.SetBuffer(stepKernel,   "TapeData", tapeBuffer);
-        compute.SetBuffer(colourKernel, "TapeData", tapeBuffer);
+        compute.SetBuffer(stepKernel,    "TapeData", tapeBuffer);
+        compute.SetBuffer(colourKernel,  "TapeData", tapeBuffer);
         compute.SetTexture(colourKernel, "DisplayTexture", displayTexture);
 
-        SetColourUniforms();
-
-        // Wire texture to the Quad child so it displays immediately on Play
         GetComponentInChildren<MeshRenderer>().material.mainTexture = displayTexture;
+
+        entropyReadback = new ComputeBuffer(EntropySampleCount * settings.tapeSize, sizeof(uint));
+
+        hudStyle = new GUIStyle();
+        hudStyle.fontSize  = 18;
+        hudStyle.normal.textColor = new Color(0.8f, 0.9f, 1f, 0.85f);
     }
 
     // ── Per-frame simulation ──────────────────────────────────────────────────
 
     void RunSimulation()
     {
-        compute.SetFloat("time", Time.fixedTime);
+        compute.SetFloat("time", Time.fixedTime + epochCount * 0.001f);
 
         int gx = Mathf.CeilToInt(settings.width  / 8f);
         int gy = Mathf.CeilToInt(settings.height / 8f);
@@ -80,20 +97,33 @@ public class BFFSimulation : MonoBehaviour
         compute.Dispatch(colourKernel, gx, gy, 1);
     }
 
-    // ── Helpers ───────────────────────────────────────────────────────────────
+    // ── Entropy HUD ───────────────────────────────────────────────────────────
 
-    void SetColourUniforms()
+    void SampleEntropy()
     {
-        var colours = new Vector4[7]
+        // Read a random strip of cells from the GPU buffer (CPU-side sample)
+        uint[] sample = new uint[EntropySampleCount * settings.tapeSize];
+        tapeBuffer.GetData(sample, 0, 0, sample.Length);
+
+        int[] freq = new int[256];
+        foreach (uint b in sample) freq[b & 255]++;
+
+        float entropy = 0f;
+        float total   = sample.Length;
+        for (int i = 0; i < 256; i++)
         {
-            settings.nullColour,
-            settings.moveColour,
-            settings.auxColour,
-            settings.mathColour,
-            settings.copyColour,
-            settings.loopColour,
-            settings.dataColour,
-        };
-        compute.SetVectorArray("categoryColours", colours);
+            if (freq[i] == 0) continue;
+            float p = freq[i] / total;
+            entropy -= p * Mathf.Log(p, 2f);
+        }
+        currentEntropy = entropy;
+    }
+
+    void OnGUI()
+    {
+        if (!settings.showHUD) return;
+        GUI.Label(new Rect(12, 10, 300, 30),
+            $"epoch  {epochCount:N0}    entropy  {currentEntropy:F2} / 8.00",
+            hudStyle);
     }
 }
