@@ -2,29 +2,36 @@ using UnityEngine;
 
 // Orchestrates the BFF simulation — creates GPU buffers, dispatches kernels,
 // wires the output texture to the display Quad, and renders the entropy HUD.
-// Mirrors Lague's Simulation.cs conventions exactly.
+// Dispatch order each epoch: DiffuseTrail → StepEpoch → DepositTrail → UpdateColourMap
 public class BFFSimulation : MonoBehaviour
 {
     public BFFSettings   settings;
     public ComputeShader compute;
 
-    ComputeBuffer  tapeBuffer;
-    RenderTexture  displayTexture;
+    ComputeBuffer tapeBuffer;
+    RenderTexture displayTexture;
+    RenderTexture trailMap;
+    RenderTexture diffusedTrailMap;
 
-    int stepKernel, colourKernel;
+    int stepKernel, colourKernel, depositKernel, diffuseKernel;
     int epochCount;
 
-    // Entropy sampling — read back a small slice of tape each N frames
     ComputeBuffer entropyReadback;
-    const int     EntropySampleCount = 512;
-    const int     EntropyInterval    = 30;   // frames between readbacks
-    float         currentEntropy     = 8f;
-    GUIStyle      hudStyle;
+    const int EntropySampleCount = 512;
+    const int EntropyInterval    = 30;
+    float     currentEntropy     = 8f;
+    GUIStyle  hudStyle;
 
     // ── Lifecycle ─────────────────────────────────────────────────────────────
 
     void Start()     => Init();
-    void OnDestroy() { tapeBuffer?.Release(); displayTexture?.Release(); entropyReadback?.Release(); }
+    void OnDestroy() {
+        tapeBuffer?.Release();
+        displayTexture?.Release();
+        trailMap?.Release();
+        diffusedTrailMap?.Release();
+        entropyReadback?.Release();
+    }
 
     void FixedUpdate()
     {
@@ -37,12 +44,11 @@ public class BFFSimulation : MonoBehaviour
         if (epochCount % EntropyInterval == 0)
             SampleEntropy();
 
-        // S key: toggle species identity / instruction category view
         if (Input.GetKeyDown(KeyCode.S))
         {
             settings.displayMode = settings.displayMode == 1 ? 0 : 1;
-            string modeName = settings.displayMode == 1 ? "SPECIES IDENTITY" : "INSTRUCTION CATEGORIES";
-            Debug.Log($"Display mode: {modeName}");
+            string name = settings.displayMode == 1 ? "SPECIES IDENTITY" : "INSTRUCTION CATEGORIES";
+            Debug.Log($"Display mode: {name}");
         }
     }
 
@@ -61,18 +67,16 @@ public class BFFSimulation : MonoBehaviour
             init[i] = (uint)rng.Next(256);
         tapeBuffer.SetData(init);
 
-        displayTexture = new RenderTexture(settings.width, settings.height, 0,
-            RenderTextureFormat.DefaultHDR)
-        {
-            enableRandomWrite = true,
-            filterMode        = FilterMode.Point,
-            wrapMode          = TextureWrapMode.Clamp,
-        };
-        displayTexture.Create();
+        displayTexture = CreateRT(settings.width, settings.height, RenderTextureFormat.DefaultHDR);
+        trailMap       = CreateRT(settings.width, settings.height, RenderTextureFormat.RHalf);
+        diffusedTrailMap = CreateRT(settings.width, settings.height, RenderTextureFormat.RHalf);
 
-        stepKernel   = compute.FindKernel("StepEpoch");
-        colourKernel = compute.FindKernel("UpdateColourMap");
+        stepKernel    = compute.FindKernel("StepEpoch");
+        colourKernel  = compute.FindKernel("UpdateColourMap");
+        depositKernel = compute.FindKernel("DepositTrail");
+        diffuseKernel = compute.FindKernel("DiffuseTrail");
 
+        // Static uniforms
         compute.SetInt("width",            settings.width);
         compute.SetInt("height",           settings.height);
         compute.SetInt("tapeSize",         settings.tapeSize);
@@ -80,16 +84,25 @@ public class BFFSimulation : MonoBehaviour
         compute.SetInt("displayMode",      settings.displayMode);
         compute.SetFloat("mutationRate",   settings.mutationRate);
 
-        compute.SetBuffer(stepKernel,    "TapeData", tapeBuffer);
-        compute.SetBuffer(colourKernel,  "TapeData", tapeBuffer);
-        compute.SetTexture(colourKernel, "DisplayTexture", displayTexture);
+        // Buffers — bind to all kernels that need them
+        int[] tapeKernels = { stepKernel, colourKernel, depositKernel };
+        foreach (var k in tapeKernels)
+            compute.SetBuffer(k, "TapeData", tapeBuffer);
+
+        // Trail textures
+        compute.SetTexture(diffuseKernel, "TrailMap",         trailMap);
+        compute.SetTexture(diffuseKernel, "DiffusedTrailMap", diffusedTrailMap);
+        compute.SetTexture(stepKernel,    "DiffusedTrailMap", diffusedTrailMap);
+        compute.SetTexture(depositKernel, "TrailMap",         trailMap);
+        compute.SetTexture(colourKernel,  "DiffusedTrailMap", diffusedTrailMap);
+        compute.SetTexture(colourKernel,  "DisplayTexture",   displayTexture);
 
         GetComponentInChildren<MeshRenderer>().material.mainTexture = displayTexture;
 
         entropyReadback = new ComputeBuffer(EntropySampleCount * settings.tapeSize, sizeof(uint));
 
         hudStyle = new GUIStyle();
-        hudStyle.fontSize  = 18;
+        hudStyle.fontSize = 18;
         hudStyle.normal.textColor = new Color(0.8f, 0.9f, 1f, 0.85f);
     }
 
@@ -97,21 +110,26 @@ public class BFFSimulation : MonoBehaviour
 
     void RunSimulation()
     {
-        compute.SetFloat("time", Time.fixedTime + epochCount * 0.001f);
-        compute.SetInt("displayMode", settings.displayMode);
+        compute.SetFloat("time",               Time.fixedTime + epochCount * 0.001f);
+        compute.SetInt("displayMode",          settings.displayMode);
+        compute.SetFloat("trailWeight",        settings.trailWeight);
+        compute.SetFloat("decayRate",          settings.decayRate);
+        compute.SetFloat("diffuseRate",        settings.diffuseRate);
+        compute.SetFloat("chemotaxisStrength", settings.chemotaxisStrength);
 
         int gx = Mathf.CeilToInt(settings.width  / 8f);
         int gy = Mathf.CeilToInt(settings.height / 8f);
 
-        compute.Dispatch(stepKernel,   gx, gy, 1);
-        compute.Dispatch(colourKernel, gx, gy, 1);
+        compute.Dispatch(diffuseKernel, gx, gy, 1);  // 1. spread+decay trail
+        compute.Dispatch(stepKernel,    gx, gy, 1);  // 2. BFF step (trail-biased)
+        compute.Dispatch(depositKernel, gx, gy, 1);  // 3. deposit new trail
+        compute.Dispatch(colourKernel,  gx, gy, 1);  // 4. render
     }
 
-    // ── Entropy HUD ───────────────────────────────────────────────────────────
+    // ── Entropy sampling ──────────────────────────────────────────────────────
 
     void SampleEntropy()
     {
-        // Read a random strip of cells from the GPU buffer (CPU-side sample)
         uint[] sample = new uint[EntropySampleCount * settings.tapeSize];
         tapeBuffer.GetData(sample, 0, 0, sample.Length);
 
@@ -133,8 +151,22 @@ public class BFFSimulation : MonoBehaviour
     {
         if (!settings.showHUD) return;
         string modeName = settings.displayMode == 1 ? "species" : "categories";
-        GUI.Label(new Rect(12, 10, 400, 30),
+        GUI.Label(new Rect(12, 10, 500, 30),
             $"epoch  {epochCount:N0}    entropy  {currentEntropy:F2} / 8.00    [{modeName}]  S=toggle",
             hudStyle);
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    static RenderTexture CreateRT(int w, int h, RenderTextureFormat fmt)
+    {
+        var rt = new RenderTexture(w, h, 0, fmt)
+        {
+            enableRandomWrite = true,
+            filterMode        = FilterMode.Bilinear,
+            wrapMode          = TextureWrapMode.Clamp,
+        };
+        rt.Create();
+        return rt;
     }
 }

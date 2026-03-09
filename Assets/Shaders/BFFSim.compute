@@ -1,40 +1,51 @@
-// BFFSim.compute — GPU BFF virtual machine
+// BFFSim.compute — GPU BFF virtual machine with chemotaxis trail layer
 //
 // Instruction set (paper: Agüera y Arcas et al. arXiv:2406.19108)
 //   <  (60)  head0 left      >  (62)  head0 right
 //   {  (123) head1 left      }  (125) head1 right
 //   +  (43)  increment       -  (45)  decrement
-//   .  (46)  copy head0→head1   (REPLICATION when head1 >= tapeSize)
+//   .  (46)  copy head0→head1   (REPLICATION)
 //   ,  (44)  copy head1→head0
 //   [  (91)  jump forward if head0==0
 //   ]  (93)  jump back    if head0!=0
 //
-// Tape size is fully runtime-driven from the tapeSize uniform.
-// Change BFFSettings.tapeSize in the Inspector — no shader edits needed.
-// Maximum supported: tapeSize=128 (combined=256). Must be power of 2.
+// Trail layer (faithful extension — BFF VM is unchanged):
+//   Active cells deposit a chemical signal onto TrailMap.
+//   Signal diffuses and decays each epoch (Lague's exact approach).
+//   StepEpoch biases neighbour selection toward high-trail cells.
+//   Result: replicator fronts form branching tendrils instead of hard bubbles.
 
+#pragma kernel DiffuseTrail
 #pragma kernel StepEpoch
+#pragma kernel DepositTrail
 #pragma kernel UpdateColourMap
 
-// Local arrays fixed at max size so HLSL can allocate at compile time.
-// Loop bounds use the runtime tapeSize uniform, so unused slots are never touched.
 #define MAX_TAPE     128
 #define MAX_COMBINED 256
 
-// ── Shared buffers ────────────────────────────────────────────────────────────
+// ── Buffers and textures ──────────────────────────────────────────────────────
 
 RWStructuredBuffer<uint> TapeData;
 RWTexture2D<float4>      DisplayTexture;
+RWTexture2D<float>       TrailMap;        // written by DepositTrail
+RWTexture2D<float>       DiffusedTrailMap; // written by DiffuseTrail, read by all
+
+// ── Uniforms ──────────────────────────────────────────────────────────────────
 
 int   width;
 int   height;
-int   tapeSize;          // cells bytes; combined = tapeSize*2; max 128
+int   tapeSize;
 int   instructionLimit;
-int   displayMode;       // 0 = instruction categories  1 = species identity
+int   displayMode;
 float mutationRate;
 float time;
 
-// ── Hash RNG — identical to Lague's slime sim ─────────────────────────────────
+float trailWeight;        // how much active cells deposit each epoch
+float decayRate;          // fraction of trail lost per epoch
+float diffuseRate;        // how much trail spreads to neighbours
+float chemotaxisStrength; // 0=random neighbour  1=always follow trail
+
+// ── Hash RNG ─────────────────────────────────────────────────────────────────
 
 uint hash(uint state)
 {
@@ -49,7 +60,31 @@ uint hash(uint state)
 
 float randFloat(uint h) { return (float)h / 4294967295.0; }
 
+// ── DiffuseTrail ──────────────────────────────────────────────────────────────
+// Lague's exact diffuse+decay: 3x3 mean blend then multiply by (1-decayRate).
+
+[numthreads(8, 8, 1)]
+void DiffuseTrail(uint3 id : SV_DispatchThreadID)
+{
+    if ((int)id.x >= width || (int)id.y >= height) return;
+
+    float sum = 0.0;
+    for (int dy = -1; dy <= 1; dy++)
+    for (int dx = -1; dx <= 1; dx++)
+    {
+        int sx = clamp((int)id.x + dx, 0, width  - 1);
+        int sy = clamp((int)id.y + dy, 0, height - 1);
+        sum += TrailMap[int2(sx, sy)];
+    }
+    float blurred = sum / 9.0;
+    float result  = lerp(TrailMap[id.xy], blurred, diffuseRate) * (1.0 - decayRate);
+    DiffusedTrailMap[id.xy] = result;
+    TrailMap[id.xy]         = result;
+}
+
 // ── StepEpoch ─────────────────────────────────────────────────────────────────
+// Chemotaxis: with probability chemotaxisStrength, pick the cardinal neighbour
+// with the highest trail signal instead of a random one.
 
 [numthreads(8, 8, 1)]
 void StepEpoch(uint3 id : SV_DispatchThreadID)
@@ -61,13 +96,35 @@ void StepEpoch(uint3 id : SV_DispatchThreadID)
 
     uint rng = hash((uint)(id.y * width + id.x) + (uint)(time * 7919.0));
 
-    // Pick a random cardinal neighbour (wrapping)
-    uint dir = hash(rng) & 3u;
-    int nx = (int)id.x, ny = (int)id.y;
-    if      (dir == 0u) nx = (nx + 1) % width;
-    else if (dir == 1u) nx = (nx - 1 + width) % width;
-    else if (dir == 2u) ny = (ny + 1) % height;
-    else                ny = (ny - 1 + height) % height;
+    // ── Neighbour selection with chemotaxis bias ───────────────────────────────
+    int2 neighbours[4] = {
+        int2(((int)id.x + 1) % width,                   (int)id.y),
+        int2(((int)id.x - 1 + width) % width,           (int)id.y),
+        int2((int)id.x,                   ((int)id.y + 1) % height),
+        int2((int)id.x,  ((int)id.y - 1 + height) % height),
+    };
+
+    int nx, ny;
+    if (randFloat(hash(rng)) < chemotaxisStrength)
+    {
+        // Pick highest-trail neighbour
+        int best = 0;
+        float bestTrail = DiffusedTrailMap[neighbours[0]];
+        for (int n = 1; n < 4; n++)
+        {
+            float t = DiffusedTrailMap[neighbours[n]];
+            if (t > bestTrail) { bestTrail = t; best = n; }
+        }
+        nx = neighbours[best].x;
+        ny = neighbours[best].y;
+    }
+    else
+    {
+        // Random neighbour
+        int dir = (int)(hash(hash(rng)) & 3u);
+        nx = neighbours[dir].x;
+        ny = neighbours[dir].y;
+    }
 
     int a_base = ((int)id.y * width + (int)id.x) * tapeSize;
     int b_base = (ny * width + nx)                * tapeSize;
@@ -76,17 +133,17 @@ void StepEpoch(uint3 id : SV_DispatchThreadID)
     uint buf[MAX_COMBINED];
     for (int i = 0; i < tapeSize; i++)
     {
-        buf[i]           = TapeData[b_base + i];
+        buf[i]            = TapeData[b_base + i];
         buf[i + tapeSize] = TapeData[a_base + i];
     }
 
-    // ── Pre-compute jump table — all uint to avoid signed % warnings ──────────
+    // ── Jump table ────────────────────────────────────────────────────────────
     int jumps[MAX_COMBINED];
     for (int j = 0; j < combined; j++) jumps[j] = -1;
 
     for (int pos = 0; pos < combined; pos++)
     {
-        if (buf[pos] == 91u)   // [
+        if (buf[pos] == 91u)
         {
             int depth = 1, scan = pos + 1, scanned = 0;
             while (depth > 0 && scanned < combined)
@@ -98,7 +155,7 @@ void StepEpoch(uint3 id : SV_DispatchThreadID)
             }
             if (depth == 0) jumps[pos] = (scan - 1) & mask;
         }
-        else if (buf[pos] == 93u)  // ]
+        else if (buf[pos] == 93u)
         {
             int depth = 1, scanned = 0;
             int scan = ((pos - 1) % combined + combined) % combined;
@@ -122,35 +179,33 @@ void StepEpoch(uint3 id : SV_DispatchThreadID)
         int  cur   = ip & mask;
         uint instr = buf[cur];
 
-        if      (instr == 60u)  head0 = ((head0 - 1) % combined + combined) & mask;  // <
-        else if (instr == 62u)  head0 = (head0 + 1) & mask;                           // >
-        else if (instr == 123u) head1 = ((head1 - 1) % combined + combined) & mask;  // {
-        else if (instr == 125u) head1 = (head1 + 1) & mask;                           // }
-        else if (instr == 43u)  buf[head0 & mask] = (buf[head0 & mask] + 1u)   & 255u; // +
-        else if (instr == 45u)  buf[head0 & mask] = (buf[head0 & mask] + 255u) & 255u; // -
-        else if (instr == 46u)  buf[head1 & mask] = buf[head0 & mask];                 // .
-        else if (instr == 44u)  buf[head0 & mask] = buf[head1 & mask];                 // ,
-        else if (instr == 91u)  // [
+        if      (instr == 60u)  head0 = ((head0 - 1) % combined + combined) & mask;
+        else if (instr == 62u)  head0 = (head0 + 1) & mask;
+        else if (instr == 123u) head1 = ((head1 - 1) % combined + combined) & mask;
+        else if (instr == 125u) head1 = (head1 + 1) & mask;
+        else if (instr == 43u)  buf[head0 & mask] = (buf[head0 & mask] + 1u)   & 255u;
+        else if (instr == 45u)  buf[head0 & mask] = (buf[head0 & mask] + 255u) & 255u;
+        else if (instr == 46u)  buf[head1 & mask] = buf[head0 & mask];
+        else if (instr == 44u)  buf[head0 & mask] = buf[head1 & mask];
+        else if (instr == 91u)
         {
             if (buf[head0 & mask] == 0u)
             {
-                if (jumps[cur] >= 0) ip = jumps[cur];
-                else break;
+                if (jumps[cur] >= 0) ip = jumps[cur]; else break;
             }
         }
-        else if (instr == 93u)  // ]
+        else if (instr == 93u)
         {
             if (buf[head0 & mask] != 0u)
             {
-                if (jumps[cur] >= 0) ip = jumps[cur];
-                else break;
+                if (jumps[cur] >= 0) ip = jumps[cur]; else break;
             }
         }
 
         ip++;
     }
 
-    // ── Mutate and write back A's (target) portion only ───────────────────────
+    // ── Mutate and write back A's portion ────────────────────────────────────
     rng = hash(rng + 99991u);
     for (int w = 0; w < tapeSize; w++)
     {
@@ -161,16 +216,40 @@ void StepEpoch(uint3 id : SV_DispatchThreadID)
     }
 }
 
+// ── DepositTrail ──────────────────────────────────────────────────────────────
+// Active cells (those with actual BFF instructions) deposit signal.
+// Instruction-dense programs deposit more — evolved programs glow brighter.
+
+[numthreads(8, 8, 1)]
+void DepositTrail(uint3 id : SV_DispatchThreadID)
+{
+    if ((int)id.x >= width || (int)id.y >= height) return;
+
+    int base_idx = ((int)id.y * width + (int)id.x) * tapeSize;
+
+    int active = 0;
+    for (int i = 0; i < tapeSize; i++)
+    {
+        uint b = TapeData[base_idx + i];
+        bool isInstr = (b==60u||b==62u||b==123u||b==125u||
+                        b==43u||b==45u||b==46u||b==44u||b==91u||b==93u);
+        if (isInstr) active++;
+    }
+
+    float deposit = (float)active / (float)tapeSize * trailWeight;
+    TrailMap[id.xy] = min(TrailMap[id.xy] + deposit, 10.0);
+}
+
 // ── Colour helpers ────────────────────────────────────────────────────────────
 
 uint byteCategory(uint b)
 {
     if (b == 0u)                    return 0u;
-    if (b == 60u  || b == 62u)     return 1u;  // < >
-    if (b == 123u || b == 125u)    return 2u;  // { }
-    if (b == 43u  || b == 45u)     return 3u;  // + -
-    if (b == 46u  || b == 44u)     return 4u;  // . ,
-    if (b == 91u  || b == 93u)     return 5u;  // [ ]
+    if (b == 60u  || b == 62u)     return 1u;
+    if (b == 123u || b == 125u)    return 2u;
+    if (b == 43u  || b == 45u)     return 3u;
+    if (b == 46u  || b == 44u)     return 4u;
+    if (b == 91u  || b == 93u)     return 5u;
     return 6u;
 }
 
@@ -184,14 +263,8 @@ float3 HSVtoRGB(float h, float s, float v)
 }
 
 // ── UpdateColourMap ───────────────────────────────────────────────────────────
-//
-// MODE 0 — Instruction category view:
-//   Hue = dominant instruction type, Saturation = instruction density
-//
-// MODE 1 — Species identity view:
-//   FNV-1a hash of full tape → unique hue per program.
-//   Exact copies (BFF replication is byte-exact) share the same hue.
-//   Mutation shifts hue gradually — colour drift = evolutionary distance.
+// Trail signal boosts brightness — evolved tendrils glow.
+// High-trail paths look like the slime sim's luminous trails.
 
 [numthreads(8, 8, 1)]
 void UpdateColourMap(uint3 id : SV_DispatchThreadID)
@@ -204,17 +277,30 @@ void UpdateColourMap(uint3 id : SV_DispatchThreadID)
     for (int i = 0; i < tapeSize; i++)
         counts[byteCategory(TapeData[base_idx + i])]++;
 
-    uint  activeInstr = counts[1] + counts[2] + counts[3] + counts[4] + counts[5];
-    float saturation  = saturate((float)activeInstr / (float)tapeSize * 4.0);
+    uint  activeInstr = counts[1]+counts[2]+counts[3]+counts[4]+counts[5];
+
+    // Information density: 0..1 fraction of tape that is actual BFF instructions.
+    // Steep power curve: density must be substantial before any colour shows.
+    //   density 0.05 -> saturation ~0.01  (nearly invisible grey)
+    //   density 0.15 -> saturation ~0.10  (faint tint)
+    //   density 0.30 -> saturation ~0.50  (clear colour)
+    //   density 0.50 -> saturation ~1.00  (fully vivid)
+    float density    = (float)activeInstr / (float)tapeSize;
+    float saturation = saturate(pow(density * 3.2, 2.8));
+    float dimming    = saturate(pow(density * 2.2, 1.4));   // value dims low-density cells too
+
+    // Trail glow: brighten cells along active chemotaxis paths
+    float trail     = DiffusedTrailMap[id.xy];
+    float trailGlow = saturate(trail / 3.0);
 
     if (activeInstr == 0u)
     {
-        DisplayTexture[id.xy] = float4(0.04, 0.05, 0.08, 1.0);
+        float3 ghostBlue = float3(0.04, 0.06, 0.14) * (1.0 + trailGlow * 2.5);
+        DisplayTexture[id.xy] = float4(ghostBlue, 1.0);
         return;
     }
 
     float hue;
-
     if (displayMode == 1)
     {
         uint fingerprint = 2166136261u;
@@ -231,6 +317,9 @@ void UpdateColourMap(uint3 id : SV_DispatchThreadID)
         hue = categoryHue[dom];
     }
 
-    float val = lerp(0.35, 1.0, saturation);
-    DisplayTexture[id.xy] = float4(HSVtoRGB(hue, saturation, val), 1.0);
+    // Low-density cells: dark and desaturated (muted grey-tint)
+    // High-density cells: bright and vivid, trail makes them blaze
+    float val = lerp(0.12, 1.0, dimming) * (1.0 + trailGlow * 1.5);
+    float sat = lerp(saturation, 1.0, trailGlow * 0.4);
+    DisplayTexture[id.xy] = float4(HSVtoRGB(hue, sat, min(val, 2.0)), 1.0);
 }

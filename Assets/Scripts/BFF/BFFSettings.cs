@@ -22,6 +22,16 @@ public class BFFSettings : ScriptableObject
     [Range(0f, 0.005f)]
     public float mutationRate = 0.00024f;
 
+    [Header("Chemotaxis (Trail Layer)")]
+    [Tooltip("How much signal active cells deposit each epoch")]
+    [Range(0f, 5f)]  public float trailWeight        = 1.5f;
+    [Tooltip("Fraction of trail lost each epoch — higher = shorter memory")]
+    [Range(0f, 0.1f)] public float decayRate         = 0.015f;
+    [Tooltip("How far trail spreads to neighbours each epoch")]
+    [Range(0f, 1f)]  public float diffuseRate        = 0.25f;
+    [Tooltip("0 = fully random neighbours  1 = always follow trail")]
+    [Range(0f, 1f)]  public float chemotaxisStrength = 0.65f;
+
     [Header("Display")]
     [Tooltip("Show epoch count and entropy overlay")]
     public bool showHUD = true;
