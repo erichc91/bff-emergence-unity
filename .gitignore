@@ -27,3 +27,20 @@ sysinfo.txt
 *.csproj
 UpgradeLog.htm
 screenshot_current.png
+screenshot_phase1.png
+
+# Personal session screenshots — not for public repo
+screenshots/
+
+# Large video file — hosted on Google Drive
+bff_recording.mp4
+Videos/
+
+# VS artifacts
+.vs/
+.vsconfig
+
+# Generated project files
+*.sln
+*.csproj
+UpgradeLog.htm

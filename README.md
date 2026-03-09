@@ -1,31 +1,57 @@
 # BFF Emergence — Unity GPU Simulation
 
-A real-time GPU visualization of **computational emergence** in the BFF (Bytewise Function Fields)
-virtual machine — running 262,144 parallel BFF VMs on your RTX 4070 Ti.
+> **Making computational life visible in real time.**
 
-Inspired by: [Agüera y Arcas et al. arXiv:2406.19108](https://arxiv.org/abs/2406.19108)
-Architecture: [Sebastian Lague's slime sim conventions](https://github.com/SebLague/Slime-Simulation)
+![BFF Emergence — CMB to galaxy formation](preview.gif)
+
+*39 seconds. Left: CMB epoch (entropy 7.97/8.00, near-maximum noise). Right: galaxy formation
+(entropy 0.99/8.00, two-species Red Queen territory mosaic). Mutation rate reduced mid-recording.*
+
+**Full video (2548×1340, 39s):**
+https://drive.google.com/file/d/19xj6tYnocVRSzLsqj60Vhsxp20uHzluz/view?usp=drivesdk
 
 ---
 
-## What You're Watching
+## What This Is
 
-Each pixel is a BFF cell (16-byte tape). Colors show the dominant instruction type:
+A real-time GPU visualization of the **BFF (Bytewise Function Fields)** computational
+life system, running 262,144 parallel virtual machines simultaneously on an RTX 4070 Ti.
 
-| Colour | Instruction | Meaning |
-|--------|------------|---------|
-| Black | `0x00` | Null / empty |
-| Blue | `< >` | Movement |
-| Purple | `{ }` | Aux head movement |
-| Green | `+ -` | Math |
-| **Gold** | **`. ,`** | **Copy — the replicators** |
-| Red | `[ ]` | Loop structure — parasites |
-| Grey | other | Raw data |
+The BFF algorithm and all core dynamics (replicator emergence, Red Queen arms race,
+entropy collapse under selection) are the work of:
 
-**What emergence looks like:**
-1. Random static → gold spreads (replicators taking over)
-2. Red flickers in (parasites exploiting replicators)
-3. Waves and oscillations (Red Queen arms race)
+> Agüera y Arcas et al., *"Life emerges from simple digital physics"*, arXiv:2406.19108 (2024)
+
+This project makes their published findings **visible in real time**. The BFF paper
+documented behavior in Python on CPU. This is a GPU port with visual extensions.
+
+### What is new here (not in the original paper)
+- Real-time GPU visualization at 60fps (262,144 VMs in parallel)
+- Chemotaxis trail layer — replicator fronts form organic branching tendrils
+- Species identity color model — evolutionary distance readable as hue gradient
+- Information-density color muting — evolved programs glow, empty cells are dark
+- The mutation-as-temperature / CMB interpretive framework
+
+### Honest note on how this was built
+Most code was written by **GitHub Copilot** (Claude Sonnet) under direction of Erich Curtis.
+The architectural conventions were learned from Sebastian Lague's slime simulation.
+Erich is not a GPU shader developer by background. The CMB parallel was his direct
+observation during live experimentation. See [CREDITS.md](CREDITS.md) for full attribution.
+
+---
+
+## The CMB Observation
+
+At high mutation rate, the simulation produces a near-uniform blue-indigo noise field
+at near-maximum Shannon entropy (~7.97/8.00 bits). This is structurally identical to
+the cosmic microwave background radiation — the universe's thermodynamic equilibrium state.
+
+**Mutation rate = temperature of the BFF universe.**
+
+Reducing mutation rate is "cooling the universe." Territory wars crystallise.
+The entropy collapse is sharp — a phase transition, not a smooth decline.
+
+See [SCIENCE.md](SCIENCE.md) for the full physics framework and comparison table.
 
 ---
 
@@ -34,77 +60,99 @@ Each pixel is a BFF cell (16-byte tape). Colors show the dominant instruction ty
 ```
 Assets/
   Scripts/BFF/
-    BFFSettings.cs      — ScriptableObject: all parameters
-    BFFSimulation.cs    — MonoBehaviour: GPU orchestrator
+    BFFSettings.cs        -- ScriptableObject: all parameters
+    BFFSimulation.cs      -- MonoBehaviour: GPU orchestrator, entropy HUD
   Shaders/
-    BFFSim.compute      — Two kernels: StepEpoch + UpdateColourMap
+    BFFSim.compute        -- 4 kernels: DiffuseTrail, StepEpoch, DepositTrail, UpdateColourMap
+    Bloom.shader          -- 4-pass bloom (bright extract, H blur, V blur, composite)
+  Scripts/BFF/
+    BloomEffect.cs        -- Camera bloom via OnRenderImage
   Editor/
-    BFFSceneCreator.cs  — Tools > BFF > Create Scene
+    BFFSceneCreator.cs    -- Tools > BFF > Create Scene, presets A/B/C/D
   Scenes/
     BFF.unity
   Settings/
-    Default.asset       — Default simulation parameters
+    Default.asset
 ```
+
+**Dispatch order each epoch (order is critical):**
+1. `DiffuseTrail` — spread and decay existing trail
+2. `StepEpoch` — BFF VM execution, trail-biased neighbor selection
+3. `DepositTrail` — active cells deposit new signal
+4. `UpdateColourMap` — render display texture
 
 ---
 
 ## Quick Start
 
+**Requirements:** Unity 6000.3.10f1, Windows (DX11/DX12), NVIDIA GPU recommended
+
 ```powershell
-.\launch.ps1
-# Then: Tools > BFF > Create Scene > Play
+git clone https://github.com/YOUR_USERNAME/bff-emergence-unity
+# Open in Unity Hub -> Unity 6000.3.10f1
+# Tools > BFF > Create Scene
+# Press Play
 ```
+
+**Controls:**
+- `S` key — toggle between instruction-category view and species-identity view
+- All parameters live-editable in BFFSettings Inspector while running
 
 ---
 
-## Parameters (BFFSettings inspector)
+## Parameters (BFFSettings Inspector)
 
+### Grid / Virtual Machine
 | Parameter | Default | Effect |
 |-----------|---------|--------|
-| width / height | 512 × 512 | Grid size (higher = more cells, slower) |
-| tapeSize | 16 | Bytes per cell — more = richer programs |
-| instructionLimit | 64 | Max BFF cycles per interaction |
-| stepsPerFrame | 1 | Speed — increase for faster evolution |
-| mutationRate | 0.00024 | Mutation probability per byte |
+| width / height | 512 × 512 | Grid size |
+| tapeSize | 16 | Bytes per cell (4–128, powers of 2) |
+| instructionLimit | 64 | Max BFF cycles per cell interaction |
+| stepsPerFrame | 5 | Epochs per rendered frame |
+| mutationRate | 0.00024 | Mutation probability per byte per epoch |
+
+### Chemotaxis (Trail Layer)
+| Parameter | Default | Effect |
+|-----------|---------|--------|
+| trailWeight | 1.5 | Signal deposited per active instruction per epoch |
+| decayRate | 0.015 | Fraction of trail lost per epoch |
+| diffuseRate | 0.25 | How much trail spreads to neighbors |
+| chemotaxisStrength | 0.65 | 0 = fully random neighbor, 1 = always follow trail |
+
+### Tuning Guide
+| Goal | Change |
+|------|--------|
+| See CMB epoch (noise) | mutationRate 0.00002, let run to 300k+ epochs |
+| See galaxy formation | Drop mutationRate to 0.000002 |
+| See branching tendrils | Increase chemotaxisStrength to 0.8+ |
+| Slow down to watch | Reduce stepsPerFrame to 1–3 |
 
 ---
 
 ## Phase Roadmap
 
 - **Phase 1** ✅ — Baseline GPU BFF sim running in Unity
-- **Phase 2** ✅ — Visual polish: HSV colour model, bloom, entropy HUD, presets A/B/C/D
+- **Phase 2** ✅ — HSV colour model, bloom, entropy HUD, presets A/B/C/D
 - **Phase 3** ✅ — Species territory map (FNV-1a hash → hue), S-key toggle
 - **Phase 4** ✅ — Chemotaxis trail layer + information-density colour muting
-- **Phase 5** — Structure formation: mutation-as-temperature, CMB → galaxy-formation transition
+- **Phase 5** — Structure formation: entropy history HUD, cooling curve recording
 
 ---
 
-## The CMB Observation (2026-03-09)
+## Documentation
 
-At high mutation rate (0.00002), entropy stabilises at ~7.84/8.00 bits and the sim
-produces a near-uniform blue-indigo noise field with scattered vivid specks.
-This is the **CMB epoch of the BFF universe**.
-
-The parallel is structural, not just aesthetic:
-
-| Universe | BFF Sim |
+| Document | Contents |
 |----------|---------|
-| CMB at 2.73 K — near-uniform thermal noise | Entropy 7.84/8.00 — near-maximum Shannon noise |
-| Temperature anisotropies 1 part in 100,000 | Vivid specks in the noise field |
-| Mutation rate = temperature of the BFF universe | High mutation → hot → no structure |
-| Cooling → galaxy formation | Lower mutation → territory wars emerge |
-| Boltzmann fluctuation → galaxy seed | Yellow bubble → Boltzmann fluctuation that dissolved |
-| MEPP: life accelerates entropy production | Replicators maximise local entropy output |
-
-**To advance from CMB epoch to galaxy formation:**
-- Drop `mutationRate`: `0.00002` → `0.000002`
-- Shannon entropy will fall from 7.84 → 4-6 range
-- Red Queen territory wars (the "galaxies") crystallise
-- Press **S** for species-identity view to see the mosaic clearly
+| [SCIENCE.md](SCIENCE.md) | Physics framework, CMB parallel, what this shows |
+| [CREDITS.md](CREDITS.md) | Full attribution — paper, Lague, Copilot, Erich |
+| [docs/BUILD_LOG.md](docs/BUILD_LOG.md) | Phase-by-phase dev diary, technical decisions |
+| [data/proof/READINGS.md](data/proof/READINGS.md) | Entropy measurements, reproducibility data |
 
 ---
 
 ## License
 
-BFF algorithm: [Agüera y Arcas et al. 2024](https://arxiv.org/abs/2406.19108) (open research)
-Unity architecture inspired by Sebastian Lague (GPL v3)
+**Code:** MIT — see [LICENSE](LICENSE)
+
+BFF algorithm: Agüera y Arcas et al. 2024 (open research, arXiv:2406.19108)
+Architecture inspired by: Sebastian Lague's Slime Simulation (GPL v3, not derived)
