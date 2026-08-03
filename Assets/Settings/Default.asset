@@ -16,12 +16,11 @@ MonoBehaviour:
   height: 512
   tapeSize: 16
   instructionLimit: 64
-  stepsPerFrame: 1
-  mutationRate: 0.00024
-  nullColour: {r: 0, g: 0, b: 0, a: 1}
-  moveColour: {r: 0.2, g: 0.45, b: 1, a: 1}
-  auxColour: {r: 0.6, g: 0.2, b: 1, a: 1}
-  mathColour: {r: 0.2, g: 0.85, b: 0.35, a: 1}
-  copyColour: {r: 1, g: 0.7, b: 0.1, a: 1}
-  loopColour: {r: 1, g: 0.2, b: 0.2, a: 1}
-  dataColour: {r: 0.35, g: 0.35, b: 0.35, a: 1}
+  stepsPerFrame: 5
+  mutationRate: 0.005
+  trailWeight: 0.81
+  decayRate: 0.05
+  diffuseRate: 0.5
+  chemotaxisStrength: 0.565
+  showHUD: 1
+  displayMode: 0
