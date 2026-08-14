@@ -39,14 +39,23 @@ At initialization, all cells contain random bytes. Shannon entropy is near
 maximum (8.00 bits out of 8.00 possible). The display is near-uniform noise —
 deep blue-indigo with scattered vivid specks.
 
-This is structurally identical to the cosmic microwave background radiation (CMB):
-the universe ~380,000 years after the Big Bang, when matter and photons decoupled
-and the universe reached thermodynamic equilibrium. The CMB appears as
-near-uniform noise at 2.73 K with temperature anisotropies of only 1 part in 100,000.
+It is a useful analogy — and only an analogy — for the cosmic microwave
+background: the universe ~380,000 years after the Big Bang, when matter and
+photons decoupled and it reached thermodynamic equilibrium. The CMB appears as
+near-uniform noise at 2.73 K with temperature anisotropies of about 1 part in
+100,000.
 
-The vivid specks in the BFF sim are the anisotropies: rare pockets of low-entropy
-order that could seed structure — but dissolve before they can grow if mutation
-rate (temperature) is too high.
+**The resemblance is between two descriptions, not two physical systems.** A
+byte field at maximum Shannon entropy and a blackbody at thermal equilibrium are
+both "as disordered as their state space allows," and both show rare local
+departures from uniformity. That is where it ends: there is no spectrum here, no
+temperature in any physical sense, no isotropy measurement. Reading further into
+it would be a category error.
+
+With that said, the parallel is what made the behaviour legible while tuning:
+the vivid specks behave like anisotropies — rare pockets of low-entropy order
+that could seed structure, but dissolve before they grow if the mutation rate is
+too high.
 
 ### Phase 2: Galaxy Formation
 

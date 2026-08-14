@@ -16,7 +16,6 @@ and eventually convert the entire grid — leaving only one dark fractal void be
 
 **Full videos on Google Drive:**
 - [bff_recording.mp4](https://drive.google.com/file/d/19xj6tYnocVRSzLsqj60Vhsxp20uHzluz/view?usp=drivesdk) — 2548×1340, 39s
-- bff_Recording_30_secs.mp4 — 1190×1246, 30s
 
 ---
 
@@ -48,18 +47,18 @@ observation during live experimentation. See [CREDITS.md](CREDITS.md) for full a
 
 ---
 
-## The CMB Observation
+## Mutation rate behaves like a temperature
 
-At high mutation rate, the simulation produces a near-uniform blue-indigo noise field
-at near-maximum Shannon entropy (~7.97/8.00 bits). This is structurally identical to
-the cosmic microwave background radiation — the universe's thermodynamic equilibrium state.
+At high mutation rate the simulation sits at near-maximum Shannon entropy
+(~7.97 of 8.00 bits) — a near-uniform blue-indigo noise field with rare vivid
+specks. Lowering the mutation rate collapses entropy sharply rather than
+gradually: a phase transition, after which territory wars crystallise.
 
-**Mutation rate = temperature of the BFF universe.**
-
-Reducing mutation rate is "cooling the universe." Territory wars crystallise.
-The entropy collapse is sharp — a phase transition, not a smooth decline.
-
-See [SCIENCE.md](SCIENCE.md) for the full physics framework and comparison table.
+Treating mutation rate as a temperature is what made that legible while tuning,
+and the high-entropy state is a loose analogy for the cosmic microwave
+background. **It is an analogy between two descriptions, not two physical
+systems** — there is no spectrum, no temperature in any physical sense, and no
+isotropy measurement here. `SCIENCE.md` says where the comparison stops.
 
 ---
 
@@ -96,7 +95,7 @@ Assets/
 **Requirements:** Unity 6000.3.10f1, Windows (DX11/DX12), NVIDIA GPU recommended
 
 ```powershell
-git clone https://github.com/YOUR_USERNAME/bff-emergence-unity
+git clone https://github.com/erichc91/bff-emergence-unity
 # Open in Unity Hub -> Unity 6000.3.10f1
 # Tools > BFF > Create Scene
 # Press Play
@@ -160,7 +159,7 @@ git clone https://github.com/YOUR_USERNAME/bff-emergence-unity
 
 ## License
 
-**Code:** MIT — see [LICENSE](LICENSE)
+**Code:** GPL-3.0 — see [LICENSE](LICENSE). This Unity project derives from Sebastian Lague's GPL-3.0 Slime-Simulation; see [CREDITS.md](CREDITS.md) for exactly what was reused.
 
 BFF algorithm: Agüera y Arcas et al. 2024 (open research, arXiv:2406.19108)
 Architecture inspired by: Sebastian Lague's Slime Simulation (GPL v3, not derived)

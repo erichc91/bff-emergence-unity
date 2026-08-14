@@ -22,21 +22,28 @@ This GPU visualization exists to make their work visible in real time.
 https://www.youtube.com/watch?v=X-iSQQgOd1A
 https://github.com/SebLague/Slime-Simulation (GPL v3)
 
-The pattern of C# MonoBehaviour orchestrating a ComputeShader with
-ScriptableObject settings, RenderTexture ping-pong buffers, and per-species
-color models was taken from Lague's slime simulation, used as a working
-reference.
+**This Unity project was started from a copy of Lague's, and is therefore a
+derivative work. It is licensed GPL-3.0 to match.**
 
-To be specific, because an earlier version of this file claimed no code was
-copied and that was not accurate: the trail diffuse-and-decay step
-(`BFFSim.compute:64`) follows his implementation closely — the comment there
-says so — the integer hash at `:52-57` uses the same constants (which he in
-turn credits to Schechter and Bridson), and `decayRate`, `diffuseRate` and
-`TrailMap` are his names. His project is GPL-v3 and this one is MIT; whether
-that reuse makes this a derivative work has not been assessed.
+Earlier versions of this file and of `LICENSE` claimed that no code was copied
+or adapted. That was not accurate, and the evidence is in this repository:
 
-The BFF virtual machine, instruction set, replication mechanism and species
-dynamics were written from the paper specification rather than from his project.
+- 19 of the 21 files in `ProjectSettings/` are byte-identical to his project.
+- `ProjectSettings.asset` still reads `productName: Slime Mold`, and
+  `EditorBuildSettings.asset` still points at `Assets/Scenes/Slime.unity` — a
+  scene from his project that does not exist here.
+- The trail diffuse-and-decay step at `BFFSim.compute:64` follows his
+  implementation closely; the comment on that line says so.
+- The integer hash at `:52-57` uses the same constants, which he in turn
+  credits to Schechter and Bridson.
+- `decayRate`, `diffuseRate` and `TrailMap` are his names.
+
+What is mine: the BFF virtual machine, its instruction set, the replication and
+mutation mechanics, the species-identity hashing, the chemotaxis trail layer,
+and every experiment and parameter choice. Those were written from the paper
+specification, not from his project.
+
+Copyright (C) 2026 Erich Curtis. Licensed under GPL-3.0 — see `LICENSE`.
 
 ---
 
