@@ -2,9 +2,10 @@
 
 ## Science — The BFF Algorithm
 
-**Agüera y Arcas, B., Alakuijala, J., Evans, J., Laurie, B., Mortensen, E., Niklasson, G.,
-Nordin, G., Randall, D., Soros, L., Versari, C., Walker, J.**
-*"Life emerges from simple digital physics"*
+**Agüera y Arcas, B., Alakuijala, J., Evans, J., Laurie, B., Mordvintsev, A.,
+Niklasson, E., Randazzo, E., Versari, L.**
+*"Computational Life: How Well-formed, Self-replicating Programs Emerge from
+Simple Interaction"*
 arXiv:2406.19108 (2024)
 https://arxiv.org/abs/2406.19108
 
@@ -23,9 +24,19 @@ https://github.com/SebLague/Slime-Simulation (GPL v3)
 
 The pattern of C# MonoBehaviour orchestrating a ComputeShader with
 ScriptableObject settings, RenderTexture ping-pong buffers, and per-species
-color models was learned by studying Lague's slime simulation. No code
-was copied or adapted. The BFF compute shader was written independently
-from the BFF paper specification.
+color models was taken from Lague's slime simulation, used as a working
+reference.
+
+To be specific, because an earlier version of this file claimed no code was
+copied and that was not accurate: the trail diffuse-and-decay step
+(`BFFSim.compute:64`) follows his implementation closely — the comment there
+says so — the integer hash at `:52-57` uses the same constants (which he in
+turn credits to Schechter and Bridson), and `decayRate`, `diffuseRate` and
+`TrailMap` are his names. His project is GPL-v3 and this one is MIT; whether
+that reuse makes this a derivative work has not been assessed.
+
+The BFF virtual machine, instruction set, replication mechanism and species
+dynamics were written from the paper specification rather than from his project.
 
 ---
 

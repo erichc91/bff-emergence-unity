@@ -4,7 +4,7 @@
 
 BFF (Bytewise Function Fields) is a computational life system described in:
 
-> Agüera y Arcas et al., "Life emerges from simple digital physics," arXiv:2406.19108 (2024)
+> Agüera y Arcas et al., "Computational Life: How Well-formed, Self-replicating Programs Emerge from Simple Interaction," arXiv:2406.19108 (2024)
 
 Each cell in the grid is a virtual machine with a small tape of bytes. Cells
 interact by running their tape as a program that overwrites a neighbor's tape —

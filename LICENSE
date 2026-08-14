@@ -31,9 +31,18 @@ used or adapted.
 
 The GPU compute shader architecture pattern (C# MonoBehaviour orchestrator +
 ScriptableObject settings + ComputeShader kernels + RenderTexture pipeline) was
-inspired by Sebastian Lague's Slime Simulation (github.com/SebLague/Slime-Simulation,
-GPL v3). No code from that project was copied or adapted; only the architectural
-conventions were studied and independently reimplemented.
+taken from Sebastian Lague's Slime Simulation (github.com/SebLague/Slime-Simulation,
+GPL v3), which was used as a working reference.
+
+Specifically, and as the shader's own comments record: the trail diffuse-and-decay
+step (BFFSim.compute:64) follows his implementation closely, the integer hash at
+:52-57 uses the same constants, and several identifiers (decayRate, diffuseRate,
+TrailMap) are his. The BFF virtual machine, instruction set, replication mechanism
+and species dynamics were written from the paper specification, not from his project.
+
+Whether that reuse makes this a derivative work of a GPL-v3 project has not been
+assessed by a lawyer, and the MIT grant below should be read with that open. If
+you intend to reuse this code, raise an issue first.
 
 The decision to use MIT rather than GPL reflects that this codebase is an original
 implementation drawing on published research and common Unity patterns, not a

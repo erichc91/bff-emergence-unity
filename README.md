@@ -28,7 +28,7 @@ life system, running 262,144 parallel virtual machines simultaneously on an RTX 
 The BFF algorithm and all core dynamics (replicator emergence, Red Queen arms race,
 entropy collapse under selection) are the work of:
 
-> Agüera y Arcas et al., *"Life emerges from simple digital physics"*, arXiv:2406.19108 (2024)
+> Agüera y Arcas et al., *"Computational Life: How Well-formed, Self-replicating Programs Emerge from Simple Interaction"*, arXiv:2406.19108 (2024)
 
 This project makes their published findings **visible in real time**. The BFF paper
 documented behavior in Python on CPU. This is a GPU port with visual extensions.
